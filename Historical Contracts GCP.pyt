@@ -124,6 +124,9 @@ class HistoricalContract:
 
         arcpy.MakeTableView_management(input_table, "verifiedrecords")
 
+        inputrecordscount = int(arcpy.management.GetCount("verifiedrecords")[0])
+        arcpy.AddMessage(f"There are: {inputrecordscount} records in the input table")
+
         # Set condition for verified and reverified records then filter table for INVERSE of the condition 
 
         arcpy.management.SelectLayerByAttribute("verifiedrecords","NEW_SELECTION","Verified = 1 Or Reverified IS NULL Or Reverified = 1",'INVERT')
@@ -133,7 +136,7 @@ class HistoricalContract:
         # Set Reverify to 0 when condition is true
         if hasunverified:
             Totalunverified = arcpy.management.GetCount('verifiedrecords')
-            arcpy.AddMessage(f"Number of Unverified Records: {Totalunverified[0]}")
+            arcpy.AddMessage(f"There are: {Totalunverified[0]} unverified records")
 
             with arcpy.da.UpdateCursor('verifiedrecords',['Reverified']) as cursor:
                 for row in cursor:
@@ -158,11 +161,13 @@ class HistoricalContract:
         with arcpy.da.SearchCursor('verifiedrecords',['OID@'])  as cursor: 
            if next(cursor, None) is not None :
                     isPointEvent = True
+           else:
+               arcpy.AddMessage('There are no Point Event to Locate, Skipping to Line Events')
 
 #################### POINT EVENT ####################################
         # Make route event layer
         if isPointEvent:
-            arcpy.AddMessage(f"This is a Point Event Table")
+            arcpy.AddMessage(f"This table has Point Events")
             arcpy.AddMessage(f"Starting Make Route Event Layer For The Point Events")
 
             eventidfields = ['RouteId','POINT','Measure']
@@ -174,7 +179,7 @@ class HistoricalContract:
             arcpy.AddMessage(f"Route ID Field is  {route_id_field}")
             arcpy.AddMessage(f"Event table is  {'verifiedrecords'}")
             desc = arcpy.Describe('verifiedrecords')
-            arcpy.AddMessage(f"The input event is {desc.name} and it's a {desc.datasetType}")
+            arcpy.AddMessage(f"The input event table is {desc.name}")
 
             arcpy.lr.MakeRouteEventLayer(route_fc,
                                          route_id_field,
@@ -238,31 +243,37 @@ class HistoricalContract:
                 with arcpy.da.UpdateCursor("verifiedrecords",['Reverified']) as cursor:
                     totalrowsupdated  = 0
                     for row in cursor:
-                        row[0] = 3
+                        row[0] = 0
                         cursor.updateRow(row)
                         totalrowsupdated  += 1
-
-                arcpy.AddMessage(f"A total of {totalrowsupdated} records in had the reverified field set to in the input table: '{'verifiedrecords'}'.")
+                desc = arcpy.Describe(input_table)
+                arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to in the input table {desc.name}.")
 
                 arcpy.management.SelectLayerByAttribute("verifiedrecords", "CLEAR_SELECTION")
 
             else:
-                arcpy.AddMessage(f"Since there were no records Locatioon Location Errors, No record had the revirified field updated 0")
+                arcpy.AddMessage(f"Since there were no records with Location Errors, No record had the reverified field updated 0")
 
 
             # Filter for events that have No Error 
             
             # error_condition = "LOC_ERROR = 'NO ERROR'"
 
+            arcpy.AddMessage(f"Checking for Point Events that had no Location Error")
+
             nolocerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR = 'NO ERROR'")
 
             noerror = int(arcpy.management.GetCount(nolocerror)[0])
             arcpy.AddMessage(f"There are: {noerror} records successfully located with no errors")
 
+            arcpy.AddMessage(f"Number of input records: {inputrecordscount},\nNumber of Records located with No Errors: {noerror}\nDifference: {inputrecordscount -noerror }")
+          
             # Append point event data to historical contract table
 
             with arcpy.da.SearchCursor(nolocerror,['OID@']) as cursor:
                 if next(cursor, None) is not None:
+                    arcpy.AddMessage(f"Appending records that were located with no errors to Point Event feature class") 
+
                 
                     fieldmapping = arcpy.FieldMappings()
                     fieldmapping.addTable(nolocerror)
@@ -288,127 +299,132 @@ class HistoricalContract:
 
         arcpy.management.SelectLayerByAttribute("verifiedrecords","NEW_SELECTION","(Verified = 1 OR Reverified IS NULL OR Reverified = 1) AND (LOWER(MilepostEnd) <> 'p' OR MilepostEnd <> MilepostBegin)",None)
 
-        lineventinput = int(arcpy.management.GetCount("verifiedrecords")[0])
-        arcpy.AddMessage(f"There are: {lineventinput} records to be processed")
-        
+        isLineEvent = False 
+
         with arcpy.da.SearchCursor("verifiedrecords",['OID@']) as cursor:
 
             if next(cursor, None) is not None:
 
-                lineventinput = int(arcpy.management.GetCount("verifiedrecords")[0])
-                arcpy.AddMessage(f"There are: {lineventinput} records to be processed")
+                isLineEvent = True
 
-                eventidfields = ['RouteId','LINE','FROM_MEASURE','TO_MEASURE']    #Modify for Mile post later
+                if isLineEvent:
 
-                in_event_properties = "; ".join(eventidfields)
+                    lineventinput = int(arcpy.management.GetCount("verifiedrecords")[0])
+                    arcpy.AddMessage(f"There are: {lineventinput} records to be processed")
 
-                arcpy.AddMessage(f"The input event properties are: {in_event_properties}")
-                arcpy.AddMessage(f"Route FC is  {route_fc}")
-                arcpy.AddMessage(f"Route ID Field is  {route_id_field}")
-                arcpy.AddMessage(f"Event table is  {'verifiedrecords'}")
-                desc = arcpy.Describe('verifiedrecords')
-                arcpy.AddMessage(f"The input event is {desc.name} and it's a {desc.datasetType}")
+                    eventidfields = ['RouteId','LINE','FROM_MEASURE','TO_MEASURE']    #Modify for Mile post later
 
-                arcpy.lr.MakeRouteEventLayer(route_fc,
-                                            route_id_field,
-                                            'verifiedrecords',
-                                            "; ".join(eventidfields),
-                                            f"NDOTLineEvents{datetime.now().strftime('%d_%H')}",
-                                            None,
-                                            "ERROR_FIELD",
-                                            "NO_ANGLE_FIELD",
-                                            "NORMAL",
-                                            "ANGLE",
-                                            "LEFT",
-                                            "POINT")    # verify with team if Line or Point for this field
+                    in_event_properties = "; ".join(eventidfields)
+
+                    arcpy.AddMessage(f"The input event properties are: {in_event_properties}")
+                    arcpy.AddMessage(f"Route FC is  {route_fc}")
+                    arcpy.AddMessage(f"Route ID Field is  {route_id_field}")
+                    arcpy.AddMessage(f"Event table is  {'verifiedrecords'}")
+                    desc = arcpy.Describe('verifiedrecords')
+                    arcpy.AddMessage(f"The input event is {desc.name} and it's a {desc.datasetType}")
+
+                    arcpy.lr.MakeRouteEventLayer(route_fc,
+                                                route_id_field,
+                                                'verifiedrecords',
+                                                "; ".join(eventidfields),
+                                                f"NDOTLineEvents{datetime.now().strftime('%d_%H')}",
+                                                None,
+                                                "ERROR_FIELD",
+                                                "NO_ANGLE_FIELD",
+                                                "NORMAL",
+                                                "ANGLE",
+                                                "LEFT",
+                                                "POINT")    # verify with team if Line or Point for this field
+                    
+                    arcpy.AddMessage(f"Make Route Event Layer for Line Event has successfully processed")
+
+                    
+            # Display Point Event Layer in Current Map
+
+                    desc = arcpy.Describe(f"NDOTLineEvents{datetime.now().strftime('%d_%H')}")
+                    arcpy.AddMessage(f"The input event is {desc.name} and it's a {desc.datasetType}")
+
+                    aprx = arcpy.mp.ArcGISProject("CURRENT")
+                    m = aprx.activeMap
+                    
+                    lineeventname = f"NDOTLineEvents{datetime.now().strftime('%d_%H')}"
+
+                    layer = arcpy.management.MakeFeatureLayer(lineeventname,'Historical Contract Line Events')[0]  
+
+                    if addline == 'true':
+
+                        if arcpy.Exists(layer):
+                            m.addLayer(layer)
+                            arcpy.AddMessage(f"Historical Contract Line Events Layer has successfully being added")
+
+                        else:
+                            arcpy.AddMessage(f"{lineeventname} does not exist.")
+
+
                 
-                arcpy.AddMessage(f"Make Route Event Layer for Line Event has successfully processed")
-
+                    # Filter for events located with error 
                 
-        # Display Point Event Layer in Current Map
+                    arcpy.MakeTableView_management(f"NDOTLineEvents{datetime.now().strftime('%d_%H')}","LocationError")
 
-                desc = arcpy.Describe(f"NDOTLineEvents{datetime.now().strftime('%d_%H')}")
-                arcpy.AddMessage(f"The input event is {desc.name} and it's a {desc.datasetType}")
+                    locerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR <> 'NO ERROR'")
 
-                aprx = arcpy.mp.ArcGISProject("CURRENT")
-                m = aprx.activeMap
-                
-                lineeventname = f"NDOTLineEvents{datetime.now().strftime('%d_%H')}"
+                    lineventscontractIDs = {row[0] for row in arcpy.da.SearchCursor('LocationError',['ContractNumber'])}                 # get a set of all IDS
 
-                layer = arcpy.management.MakeFeatureLayer(lineeventname,'Historical Contract Line Events')[0]  
+                    if  lineventscontractIDs:                                                                                             # check if it is a non-empty set
+                        locerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in lineventscontractIDs])                               # Loop through all the ids, add quotation marks, and join them to an empty string.
+                        contractIDsquery = f"ContractNumber IN ({locerrorcontractIDs})"
+                        arcpy.management.SelectLayerByAttribute("verifiedrecords", "NEW_SELECTION",contractIDsquery )
 
-                if addline == 'true':
+                        with arcpy.da.UpdateCursor("verifiedrecords",['Reverified']) as cursor:
+                            totalrowsupdated  = 0
+                            for row in cursor:
+                                row[0] = 0
+                                cursor.updateRow(row)
+                                totalrowsupdated  += 1
 
-                    if arcpy.Exists(layer):
-                        m.addLayer(layer)
-                        arcpy.AddMessage(f"Historical Contract Line Events Layer has successfully being added")
+                        arcpy.AddMessage(f"Updated {totalrowsupdated} records in '{'verifiedrecords'}'.")
+
+                        arcpy.management.SelectLayerByAttribute("verifiedrecords", "CLEAR_SELECTION")
 
                     else:
-                        arcpy.AddMessage(f"{lineeventname} does not exist.")
+                        arcpy.AddMessage(f"No Location Errors, No records updated")
 
 
-            
-                # Filter for events located with error 
-            
-                arcpy.MakeTableView_management(f"NDOTLineEvents{datetime.now().strftime('%d_%H')}","LocationError")
+                    arcpy.management.SelectLayerByAttribute("LocationError", "CLEAR_SELECTION")
 
-                locerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR <> 'NO ERROR'")
+                    nolocerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR = 'NO ERROR'")
 
-                lineventscontractIDs = {row[0] for row in arcpy.da.SearchCursor('LocationError',['ContractNumber'])}                 # get a set of all IDS
+                # Append point event data to historical contract table
 
-                if  lineventscontractIDs:                                                                                             # check if it is a non-empty set
-                    locerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in lineventscontractIDs])                               # Loop through all the ids, add quotation marks, and join them to an empty string.
-                    contractIDsquery = f"ContractNumber IN ({locerrorcontractIDs})"
-                    arcpy.management.SelectLayerByAttribute("verifiedrecords", "NEW_SELECTION",contractIDsquery )
+                    arcpy.AddMessage(f"Starting to Append records to Historical Contract Feature .")
 
-                    with arcpy.da.UpdateCursor("verifiedrecords",['Reverified']) as cursor:
-                        totalrowsupdated  = 0
-                        for row in cursor:
-                            row[0] = 7
-                            cursor.updateRow(row)
-                            totalrowsupdated  += 1
+                    with arcpy.da.SearchCursor(nolocerror,['OID@']) as cursor:
+                        if next(cursor, None) is not None:
+                            fieldmapping = arcpy.FieldMappings()
+                            fieldmapping.addTable(nolocerror)
+                            fieldmapping.addTable(Line_fc)
 
-                    arcpy.AddMessage(f"Updated {totalrowsupdated} records in '{'verifiedrecords'}'.")
+                            arcpy.management.Append(inputs=nolocerror,
+                                                target= Line_fc,
+                                                schema_type="NO_TEST",    # modify to TEST later
+                                                field_mapping=fieldmapping,
+                                                subtype="",
+                                                expression="",
+                                                match_fields=None,
+                                                update_geometry="NOT_UPDATE_GEOMETRY",
+                                                enforce_domains="NO_ENFORCE_DOMAINS")
+                            
 
-                    arcpy.management.SelectLayerByAttribute("verifiedrecords", "CLEAR_SELECTION")
-
-                else:
-                    arcpy.AddMessage(f"No Location Errors, No records updated")
-
-
-                arcpy.management.SelectLayerByAttribute("LocationError", "CLEAR_SELECTION")
-
-                nolocerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR = 'NO ERROR'")
-
-            # Append point event data to historical contract table
-
-                arcpy.AddMessage(f"Starting to Append records to Historical Contract Feature .")
-
-                with arcpy.da.SearchCursor(nolocerror,['OID@']) as cursor:
-                    if next(cursor, None) is not None:
-                        fieldmapping = arcpy.FieldMappings()
-                        fieldmapping.addTable(nolocerror)
-                        fieldmapping.addTable(Line_fc)
-
-                        arcpy.management.Append(inputs=nolocerror,
-                                            target= Line_fc,
-                                            schema_type="NO_TEST",    # modify to TEST later
-                                            field_mapping=fieldmapping,
-                                            subtype="",
-                                            expression="",
-                                            match_fields=None,
-                                            update_geometry="NOT_UPDATE_GEOMETRY",
-                                            enforce_domains="NO_ENFORCE_DOMAINS")
-                        
-
-                    arcpy.conversion.ExportTable(
-                                        in_table=nolocerror,
-                                        out_table='WHAfT',
-                                        where_clause="",
-                                        use_field_alias_as_name="NOT_USE_ALIAS",
-                                        field_mapping='',
-                                        sort_field=None
-                                    )
+                        arcpy.conversion.ExportTable(
+                                            in_table=nolocerror,
+                                            out_table='WHAfT',
+                                            where_clause="",
+                                            use_field_alias_as_name="NOT_USE_ALIAS",
+                                            field_mapping='',
+                                            sort_field=None
+                                        )
+            else:
+                arcpy.AddMessage('No Line Event records to Process')
             
         end_time = time.time()
         execution_time = end_time - start_time
