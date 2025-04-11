@@ -222,7 +222,6 @@ class HistoricalContract:
                     with arcpy.da.SearchCursor("verifiedrecordsHC",fields) as searchcursor:
                         totalrowsupdated  = 0
                         for row in searchcursor:
-                            arcpy.AddMessage(row)
                             if row[indexofEventId] not in sderecordsID:
                                 insertcursor.insertRow(row)
                                 totalrowsupdated  += 1
@@ -251,12 +250,12 @@ class HistoricalContract:
 
             if 'FROM_MEASURE' not in [f.name for f in arcpy.ListFields("verifiedrecords")]: 
                 arcpy.AddField_management("verifiedrecords", 'FROM_MEASURE', "DOUBLE",100,50,None,'FROM_MEASURE')
-            arcpy.CalculateField_management("verifiedrecords", 'FROM_MEASURE',  "None if str(!MilepostBegin!).isalpha() else float(!MilepostBegin!)", "PYTHON3")
+            arcpy.CalculateField_management("verifiedrecords", 'FROM_MEASURE',  "None if not str(!MilepostBegin!).strip().replace('.', '', 1).isdigit() else float(!MilepostBegin!)", "PYTHON3")
 
             if 'TO_MEASURE' not in [f.name for f in arcpy.ListFields("verifiedrecords")]: 
                 
                 arcpy.AddField_management("verifiedrecords", 'TO_MEASURE', "DOUBLE",100,50,None,'TO_MEASURE')
-            arcpy.CalculateField_management("verifiedrecords", 'TO_MEASURE',  "None if str(!MilepostEnd!).isalpha() else float(!MilepostEnd!)", "PYTHON3")
+            arcpy.CalculateField_management("verifiedrecords", 'TO_MEASURE',  "None if not str(!MilepostEnd!).strip().replace('.', '', 1).isdigit() else float(!MilepostEnd!)", "PYTHON3")
             
             
 
@@ -363,19 +362,15 @@ class HistoricalContract:
                 # Filter for events located with error 
                 arcpy.AddMessage(f"Check for Point Events that had Location Error")
 
-                # arcpy.MakeTableView_management(NDOTPointEvents,"LocationError","LOC_ERROR <> 'NO ERROR'")
-
-                arcpy.MakeTableView_management('NDOTPointEvents',"LocationErrorPE","(Verified = 1) And (Reverified IS NULL Or Reverified = 1) And (MilepostEnd = 'p' OR MilepostEnd = MilepostBegin) And (LOC_ERROR <> 'NO ERROR')")
-
-                # arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "( (Verified = 1 OR Reverified IS NULL OR Reverified = 1) AND (LOWER(MilepostEnd) = 'p' OR MilepostEnd = MilepostBegin) AND LOC_ERROR <> 'NO ERROR')")
+                arcpy.MakeTableView_management('NDOTPointEvents',"LocationErrorPE","(Verified = 1) And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) = 'p' OR MilepostEnd = MilepostBegin) And (LOC_ERROR <> 'NO ERROR')")
 
 
                 locerrorpoints = int(arcpy.management.GetCount('LocationErrorPE')[0])
                 arcpy.AddMessage(f"Number of records that had Location Error: {locerrorpoints}")
 
-                # Get contract IDs for all events where there is Location
+                # Get contract IDs for point all events where there is Location error
 
-                contractIDs = {row[0] for row in arcpy.da.SearchCursor('LocationErrorPE',['RouteId'])}                 # get a set of all IDS
+                contractIDs = {row[0] for row in arcpy.da.SearchCursor('LocationErrorPE',['ID'])}                 # get a set of all IDS
 
                 arcpy.AddMessage(f"How many ids: {len(contractIDs)} ")
 
@@ -383,11 +378,9 @@ class HistoricalContract:
                     arcpy.AddMessage(f"Updating the reverified field in the input table for all records with Location Error to 0")  
 
                     locerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in contractIDs])                               # Loop through all the ids, add quotation marks, and join them to an empty string.
-                    contractIDsquery = f"RouteId IN ({locerrorcontractIDs})"
+                    contractIDsquery = f"ID IN ({locerrorcontractIDs})"
+                    
                     arcpy.MakeTableView_management(input_table, "pointverifiedrecords",contractIDsquery)
-
-                    # arcpy.AddMessage(f"Updating records with these IDs: {locerrorcontractIDs} ")
-                    # arcpy.management.SelectLayerByAttribute("verifiedrecords", "NEW_SELECTION",contractIDsquery )
 
 
                     with arcpy.da.UpdateCursor("pointverifiedrecords",['Reverified']) as cursor:
@@ -405,20 +398,47 @@ class HistoricalContract:
                 else:
                     arcpy.AddMessage(f"Since there were no records with Location Errors, No record had the reverified field updated 0")
 
-                # arcpy.management.Delete("LocationErrorPE")
+                arcpy.management.Delete("LocationErrorPE")
 
                 # Filter for events that have No Error 
-                
-                # error_condition = "LOC_ERROR = 'NO ERROR'"
 
                 arcpy.AddMessage(f"Checking for Point Events That Had No Location Error")
 
-                arcpy.MakeTableView_management('NDOTPointEvents',"NOLocationErrorPE","(Verified = 1) And (Reverified IS NULL Or Reverified = 1) And (MilepostEnd = 'p' OR MilepostEnd = MilepostBegin) And (LOC_ERROR = 'NO ERROR')")
-
-                # nolocerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "LOC_ERROR = 'NO ERROR'")
+                arcpy.MakeTableView_management('NDOTPointEvents',"NOLocationErrorPE","(Verified = 1) And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) = 'p' OR MilepostEnd = MilepostBegin) And (LOC_ERROR = 'NO ERROR')")
 
                 noerror = int(arcpy.management.GetCount("NOLocationErrorPE")[0])
                 arcpy.AddMessage(f"There are: {noerror} records successfully located with no errors")
+
+
+                with arcpy.da.SearchCursor("NOLocationErrorPE",['OID@']) as cursor:   # Check if Table is not empty
+                    
+                    if next(cursor, None) is not None:
+
+                        arcpy.AddMessage(f"Updating reverified field to 2 for all records that were successfuly located with no error")
+                        noerrorcontractIDs = {row[0] for row in arcpy.da.SearchCursor('NOLocationErrorPE',['ID'])}  # get a set of all IDS
+                        allnoerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in noerrorcontractIDs])
+                        noerrorcontractIDsquery = f"ID IN ({allnoerrorcontractIDs})"
+                        arcpy.MakeTableView_management(input_table, "pointeventsnoerror",noerrorcontractIDsquery)
+
+
+                        with arcpy.da.UpdateCursor("pointeventsnoerror",['Reverified']) as cursor:
+
+                            totalrowsupdated  = 0
+                            for row in cursor:
+                                row[0] = 2
+                                cursor.updateRow(row)
+                                totalrowsupdated  += 1
+                        desc = arcpy.Describe(input_table)
+                        arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to 2 in the input table {desc.name}.")
+                        arcpy.management.Delete("pointeventsnoerror")
+
+                    else:
+                        arcpy.AddMessage("Since there were no records with no Location Errors, no records had the Reverified field updated.")
+
+                arcpy.management.Delete("NOLocationErrorPE") 
+
+                arcpy.MakeTableView_management('NDOTPointEvents',"NOLocationErrorPE","(Verified = 1) And (Reverified IS NULL Or Reverified = 2) And (LOWER(MilepostEnd) = 'p' OR MilepostEnd = MilepostBegin) And (LOC_ERROR = 'NO ERROR')")
+
 
                 # arcpy.AddMessage(f"Number of input records: {totalpointeventrecords[0]},\nNumber of Records located with No Errors: {noerror}\nDifference: {totalpointeventrecords[0] -noerror }")
             
@@ -485,7 +505,7 @@ class HistoricalContract:
                                                     route_id_field,
                                                     'verifiedrecordsLE',
                                                     "; ".join(eventidfields),
-                                                    f"NDOTLineEvents{datetime.now().strftime('%d')}",
+                                                    "NDOTLineEvents",
                                                     None,
                                                     "ERROR_FIELD",
                                                     "NO_ANGLE_FIELD",
@@ -504,7 +524,7 @@ class HistoricalContract:
                         aprx = arcpy.mp.ArcGISProject("CURRENT")
                         m = aprx.activeMap
                         
-                        lineeventname = f"NDOTLineEvents{datetime.now().strftime('%d')}"
+                        lineeventname = "NDOTLineEvents"
 
                         layer = arcpy.management.MakeFeatureLayer(lineeventname,'Historical Contract Line Events')[0]  
 
@@ -519,9 +539,7 @@ class HistoricalContract:
                     
                         # Filter for events located with error 
                     
-                        arcpy.MakeTableView_management(f"NDOTLineEvents{datetime.now().strftime('%d')}","LocationError","Verified = 1 And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR <> 'NO ERROR')")
-
-                        # arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "( (Verified = 1 OR Reverified IS NULL OR Reverified = 1) AND (LOWER(MilepostEnd) <> 'p' OR MilepostEnd <> MilepostBegin) AND LOC_ERROR <> 'NO ERROR')")
+                        arcpy.MakeTableView_management("NDOTLineEvents","LocationError","Verified = 1 And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR <> 'NO ERROR')")
 
                         lineventscontractIDs = {row[0] for row in arcpy.da.SearchCursor("LocationError",['ID'])}                 # get a set of all IDS
 
@@ -549,36 +567,65 @@ class HistoricalContract:
                                     
                             desc = arcpy.Describe(input_table)
                             arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to in the input table {desc.name}.")
-                            # arcpy.management.SelectLayerByAttribute("verifiedrecords", "CLEAR_SELECTION")                       # Clear selection from table     
                             # arcpy.management.Delete("lineverifiedrecords")  
                                 
 
                         else:
                             arcpy.AddMessage(f"Since there were no records with Location Errors, No record had the reverified field updated 0")
 
-                        # arcpy.management.SelectLayerByAttribute("LocationError", "CLEAR_SELECTION")                                      # Clear selection from table 
-
                         arcpy.AddMessage(f"Checking for Line Events that had no Location Error")
 
-                        arcpy.MakeTableView_management(f"NDOTLineEvents{datetime.now().strftime('%d')}", "nolocerror","Verified = 1 And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR = 'NO ERROR')")
+                        arcpy.MakeTableView_management("NDOTLineEvents", "NOLocationErrorLE","Verified = 1 And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR = 'NO ERROR')")
 
-                        # nolocerror = arcpy.management.SelectLayerByAttribute("LocationError", "NEW_SELECTION", "(Verified = 1) AND (Reverified IS NULL Or Reverified = 1) AND (MilepostEnd <> 'P' AND MilepostEnd <> MilepostBegin) AND LOC_ERROR = 'NO ERROR'")
-
-                        lineeventsnoerror = int(arcpy.management.GetCount("nolocerror")[0])
+                        lineeventsnoerror = int(arcpy.management.GetCount("NOLocationErrorLE")[0])
                         arcpy.AddMessage(f"There are: {lineeventsnoerror} records successfully located with no errors")
 
                         arcpy.AddMessage(f"Number of input records: {inputrecordscount},\nNumber of line events located with No Errors: {lineeventsnoerror}\nDifference: {inputrecordscount -lineeventsnoerror}")
+
+                        
+                        with arcpy.da.SearchCursor("NOLocationErrorLE",['OID@']) as cursor:   # Check if Table is not empty
+                    
+                            if next(cursor, None) is not None:
+
+                                arcpy.AddMessage(f"Updating reverified field to 2 for all records that were successfuly located with no error")
+                                noerrorcontractIDs = {row[0] for row in arcpy.da.SearchCursor('NOLocationErrorLE',['ID'])}  # get a set of all IDS
+                                allnoerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in noerrorcontractIDs])
+                                noerrorcontractIDsquery = f"ID IN ({allnoerrorcontractIDs})"
+                                arcpy.MakeTableView_management(input_table, "lineeventsnoerror",noerrorcontractIDsquery)
+
+
+                                with arcpy.da.UpdateCursor("lineeventsnoerror",['Reverified']) as cursor:
+
+                                    totalrowsupdated  = 0
+                                    for row in cursor:
+                                        row[0] = 2
+                                        cursor.updateRow(row)
+                                        totalrowsupdated  += 1
+                                desc = arcpy.Describe(input_table)
+                                arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to 2 in the input table {desc.name}.")
+                                arcpy.management.Delete("lineeventsnoerror")
+
+                            else:
+                                arcpy.AddMessage("Since there were no records with no Location Errors, no records had the Reverified field updated.")
+
+                        arcpy.management.Delete("NOLocationErrorLE") 
+
+                        arcpy.MakeTableView_management("NDOTLineEvents", "NOLocationErrorLE","Verified = 1 And (Reverified IS NULL Or Reverified = 2) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR = 'NO ERROR')")
+
+                        lineeventsnoerror = int(arcpy.management.GetCount("NOLocationErrorLE")[0])
+                        arcpy.AddMessage(f"There are: {lineeventsnoerror} records successfully located with no errors")
+
             
 
-                    # Append point event data to historical contract table
+                    # Append line event data to historical contract table
 
-                        with arcpy.da.SearchCursor("nolocerror",['OID@']) as cursor: 
+                        with arcpy.da.SearchCursor("NOLocationErrorLE",['OID@']) as cursor: 
                             # Check if Table is not empty
                             if next(cursor, None) is not None:
                                     
                                 arcpy.AddMessage(f"Starting to Append records to Historical Contract Line Feature Class.")
 
-                                nolocerrorfields = {field.name for field in arcpy.ListFields("nolocerror")if field.type not in ("OID")}  
+                                nolocerrorfields = {field.name for field in arcpy.ListFields("NOLocationErrorLE")if field.type not in ("OID")}  
                                 lineeventfields = {field.name for field in arcpy.ListFields(Line_fc)if field.type not in ("OID")}
                                 fields = ['SHAPE@'] + list(nolocerrorfields & lineeventfields) # Get fields that are common in both tables, and add geometry field
 
@@ -587,9 +634,8 @@ class HistoricalContract:
                                 indexofEventId = fields.index('ID')  # Get the index of the contract number in the fields table (use this index in the search cursor)
                                 lineeventrecordstoappend = {row[0] for row in arcpy.da.SearchCursor(Line_fc,['ID'])}  #Get all Contract Numbers in the tables located with no error 
                             
-                            
                                 with arcpy.da.InsertCursor(Line_fc,fields) as insertcursor:
-                                    with arcpy.da.SearchCursor("nolocerror",fields) as searchcursor:
+                                    with arcpy.da.SearchCursor("NOLocationErrorLE",fields) as searchcursor:
                                         for row in searchcursor:
                                             if row[indexofEventId] not in lineeventrecordstoappend:
                                                 insertcursor.insertRow(row)
@@ -598,11 +644,11 @@ class HistoricalContract:
             
             # Delete fields that were added at the begining 
 
-            arcpy.AddMessage(f"Deleting temporary fields")
+            # arcpy.AddMessage(f"Deleting temporary fields")
 
-            arcpy.MakeTableView_management(input_table, "verifiedrecords")
+            # arcpy.MakeTableView_management(input_table, "verifiedrecords")
             
-            arcpy.management.DeleteField("verifiedrecords","FROM_MEASURE;TO_MEASURE","DELETE_FIELDS") 
+            # arcpy.management.DeleteField("verifiedrecords","FROM_MEASURE;TO_MEASURE","DELETE_FIELDS") 
 
 
             end_time = time.time()
