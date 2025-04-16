@@ -30,30 +30,20 @@ class HistoricalContract:
     def getParameterInfo(self):
         """Define the tool parameters."""
 
-        # datasource = arcpy.Parameter( displayName="Data Source Type",  # Data Source Type
-        #                      name="data_source",
-        #                      datatype="GPString",
-        #                      parameterType="Required",
-        #                      direction="Input")
-        # datasource.filter.type = 'ValueList'
-        # datasource.filter.list = ['Excel Table', 'SDE Table']
-        # datasource.description = "Select the data source type. This could be an Excel Table or an SDE table"
-
-        inputExcelTable = arcpy.Parameter( displayName="Input Excel Table",  
+        inputExcelTable = arcpy.Parameter( displayName="Select Input Excel Sheet (Skip if Reverifying Records)",  
                              name="input_excel",
                              datatype="DEFile",
                              parameterType="Optional",
-                             direction="Input",
-                             enabled=False)
+                             direction="Input")
         inputExcelTable.description = "Select the table that contains the data for the processing tool."
         inputExcelTable.filter.list = ["xls", "xlsx"]
 
-        inputSDE = arcpy.Parameter( displayName="Input SDE Table",  
+        inputSDE = arcpy.Parameter( displayName="Reverify Records",  
                              name="input_table",
                              datatype="DETable",
                              parameterType="Optional",
-                             direction="Input",
-                             enabled=False)
+                             direction="Input")
+        inputSDE.value = "C:\\Users\\adup1373\Documents\\Historical Contract\\HistoricalContract.gdb\\SDEEvents"
         inputSDE.description = "Select the SDE table that contains the data for points and line events. This table is also the target table for appending records"
 
         inputRouteFC = arcpy.Parameter(displayName="Input Route Feature Class",  #The route features on which events will be located.
@@ -61,6 +51,7 @@ class HistoricalContract:
                             datatype="DEFeatureClass",     
                             parameterType="Required",
                             direction="Input")
+        inputRouteFC.value = "C:\\Users\\adup1373\\Documents\\Historical Contract\\HistoricalContract.gdb\\MilepostCalibratedRoutes"
         inputRouteFC.description = "Select the route feature class containing the routes to be used in the event generation."
         inputRouteFC.filter.list = ["Polyline"]
 
@@ -71,7 +62,7 @@ class HistoricalContract:
                               parameterType="Required",
                               direction="Input")
         routeIDField.parameterDependencies = [inputRouteFC.name]                 #Set dependencies for Route ID field using the route feature class
-        routeIDField.value = 'RouteId'                                           # Set default value for Route ID field to RouteId
+        routeIDField.value = 'RouteID'                                           # Set default value for Route ID field to RouteId
         routeIDField.description = "Select the field in the Route Feature Class that uniquely identifies each route (e.g., RouteId)."
         
         pointEvent =  arcpy.Parameter(displayName="Scoping Contract Points", 
@@ -79,21 +70,23 @@ class HistoricalContract:
                                    datatype="DEFeatureClass",
                                    parameterType="Optional",
                                    direction="Input")
+        pointEvent.value = "C:\\Users\\adup1373\\Documents\\Historical Contract\\HistoricalContract.gdb\\ScopingPointHistoricalContract"
         pointEvent.description =  "Select the Historical Contract Point Feature class to which the generated point events will be appended."
         pointEvent.filter.list = ["Point"]
 
-        lineEvent =  arcpy.Parameter(displayName="Show Extra Parameters", 
+        lineEvent =  arcpy.Parameter(displayName="Scoping Contract Line", 
                                 name = 'Line_fc',
                                 datatype="DEFeatureClass",
                                 parameterType="Optional",
                                 direction="Input")
+        lineEvent.value = "C:\\Users\\adup1373\\Documents\\Historical Contract\\HistoricalContract.gdb\\ScopingLineHistoricalContract"
         lineEvent.description =  "Select the Historical Contract Line Feature class to which the generated line events will be appended."
         lineEvent.filter.list = ["Polyline"]
     
         
         advancedoptions = arcpy.Parameter(displayName="Show extra options", 
                                 name = 'showoptions',
-                                datatype="Boolean",
+                                datatype="GPBoolean",
                                 parameterType="Optional",
                                 direction="Input")
         advancedoptions.description = "Check this option to show additional parameters."
@@ -112,21 +105,12 @@ class HistoricalContract:
         validation is performed.  This method is called whenever a parameter
         has been changed."""
         
-        datasourcetype = parameters[0].ValueAsText     # Data source parameter 
+        show = parameters[6].value
 
-        inputexceltable_param = parameters[1]          # Input Excel Table Parameter
-
-        inputsdetable_param = parameters[2]            # Input SDE Table Parameter
-
-        inputexceltable_param.enabled = False
-        inputsdetable_param.enabled = False
-
-        if datasourcetype == 'Excel Table':
-             inputexceltable_param.enabled = True
-             inputsdetable_param.enabled = True
-
-        elif datasourcetype == 'SDE Table':
-             inputsdetable_param.enabled = True
+        parameters[2].enabled = show
+        parameters[3].enabled = show
+        parameters[4].enabled = show
+        parameters[5].enabled = show
 
         return
 
@@ -146,18 +130,15 @@ class HistoricalContract:
         # Overwrite outputs
         arcpy.env.overwriteOutput = True
 
-        # Set parameters for the input 
-        datasource = parameters[0].valueAsText    # input Datasource
-        inputExcel = parameters[1].valueAsText     # input Excel Table
-        input_table = parameters[2].valueAsText    # input SDE Table 
-        route_fc = parameters[3].valueAsText        #The route features on which events will be located.
-        route_id_field = parameters[4].valueAsText  # The field containing values that uniquely identify each route 
-        Point_fc = parameters[5].valueAsText  # Point Event Feature class to which events will be appended
-        Line_fc = parameters[6].valueAsText  # Line Event Feature class to which events will be appended
-        addpoint = parameters[7].valueAsText  # Check box for adding point event layer to map
-        addline = parameters[8].valueAsText  # Check box for adding line event layer to map
-        
+        # Set parameters for the input
 
+        inputExcel = parameters[0].valueAsText     # input Excel Table
+        input_table = parameters[1].valueAsText    # input SDE Table 
+        route_fc = parameters[2].valueAsText        #The route features on which events will be located.
+        route_id_field = parameters[3].valueAsText  # The field containing values that uniquely identify each route 
+        Point_fc = parameters[4].valueAsText  # Point Event Feature class to which events will be appended
+        Line_fc = parameters[5].valueAsText  # Line Event Feature class to which events will be appended
+        showadvance = parameters[6].valueAsText  # Check box for to show extra parameter options 
        
 
         newrecords = True   # Set all new records to true until otherwise
@@ -322,7 +303,6 @@ class HistoricalContract:
                                                 "LEFT",
                                                 "POINT")
                     arcpy.AddMessage(f"Make Route Event Layer for Point Events has successfully processed")
-                    
 
                     # Filter for events located with error 
                     arcpy.AddMessage(f"Check for Point Events that had Location Error")
@@ -394,26 +374,6 @@ class HistoricalContract:
                                             insertcursor.insertRow(row)
 
                     arcpy.management.Delete("NOLocationErrorPE") 
-
-
-                    # Display Scoping Points Layer in Current Map
-
-                    aprx = arcpy.mp.ArcGISProject("CURRENT")
-                    m = aprx.activeMap
-
-                    desc = arcpy.Describe(Point_fc)
-                    arcpy.AddMessage(f"The input event is {desc.name}")
-
-                    layer = arcpy.management.MakeFeatureLayer(Point_fc,'Scoping Point Layer')[0] 
-
-                    if addpoint == 'true':  # activates if user checks box for add point event layer to map
-
-                        if arcpy.Exists(layer):
-                            m.addLayer(layer)
-                            arcpy.AddMessage(f"Scoping Point Layer has successfully being added to the map")
-
-                        else:
-                           None
 
                     arcpy.AddMessage(f"Checking for Point Events That Had No Location Error")
 
@@ -560,24 +520,6 @@ class HistoricalContract:
                                                       reverified_index = fields.index('Reverified')
                                                       row[reverified_index] = 2
                                                     insertcursor.insertRow(row)
-
-                            # Display Point Event Layer in Current Map
-
-                            aprx = arcpy.mp.ArcGISProject("CURRENT")
-                            m = aprx.activeMap
-
-                            desc = arcpy.Describe(Line_fc)
-                            arcpy.AddMessage(f"The input event is {desc.name}")
-
-                            layer = arcpy.management.MakeFeatureLayer(Line_fc,'Scoping Line Layer')[0]  
-
-                            if addline == 'true':
-
-                                if arcpy.Exists(layer):
-                                    m.addLayer(layer)
-                                    arcpy.AddMessage(f"Historical Contract Scoping Line Layer has successfully being added")
-                                else:
-                                    None
 
                             arcpy.MakeTableView_management("NDOTLineEvents", "NOLocationErrorLE","Verified = 1 And (Reverified IS NULL Or Reverified = 1) And (LOWER(MilepostEnd) <> 'p' AND MilepostEnd <> MilepostBegin) AND (LOC_ERROR = 'NO ERROR')")
                             lineeventsnoerror = int(arcpy.management.GetCount("NOLocationErrorLE")[0])
