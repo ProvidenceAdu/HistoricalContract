@@ -84,7 +84,7 @@ class HistoricalContract:
         lineEvent.filter.list = ["Polyline"]
     
         
-        advancedoptions = arcpy.Parameter(displayName="Show extra options", 
+        advancedoptions = arcpy.Parameter(displayName="Show Extra Options", 
                                 name = 'showoptions',
                                 datatype="GPBoolean",
                                 parameterType="Optional",
@@ -274,11 +274,9 @@ class HistoricalContract:
         #################### POINT EVENT ####################################
                 # Make route event layer
                 if isPointEvent:
-                    arcpy.AddMessage(f"This table has Point Events")
                     arcpy.AddMessage(f"Starting Make Route Event Layer For The Point Events")
 
                     totalpointeventrecords = arcpy.management.GetCount('verifiedrecords')
-                    arcpy.AddMessage(f"There are: {totalpointeventrecords[0]} point event records to be processed")
 
                     eventidfields = ['RouteId','POINT','FROM_MEASURE']
 
@@ -316,25 +314,32 @@ class HistoricalContract:
 
                     contractIDs = {row[0] for row in arcpy.da.SearchCursor('LocationErrorPE',['ID'])}                 # get a set of all IDS
 
-                    arcpy.AddMessage(f"How many ids: {len(contractIDs)} ")
-
+                
+                    
                     if contractIDs:                                                                                             # check if it is a non-empty set
                         arcpy.AddMessage(f"Updating the reverified field in the input table for all records with Location Error to 0")  
 
                         locerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in contractIDs])                               # Loop through all the ids, add quotation marks, and join them to an empty string.
                         contractIDsquery = f"ID IN ({locerrorcontractIDs})"
-                        
+
                         arcpy.MakeTableView_management(input_table, "pointverifiedrecords",contractIDsquery)
 
+                       
+                        locerrorIds = {row[0]: row[1] for row in arcpy.da.SearchCursor('LocationErrorPE', ['ID', 'LOC_ERROR'])}
 
-                        with arcpy.da.UpdateCursor("pointverifiedrecords",['Reverified']) as cursor:
+
+                        with arcpy.da.UpdateCursor("pointverifiedrecords",['ID','Reverified','LocError']) as cursor:
                             totalrowsupdated  = 0
                             for row in cursor:
-                                row[0] = 0
-                                cursor.updateRow(row)
-                                totalrowsupdated  += 1
+                                id = row[0]
+                                if id in locerrorIds:
+                                    row[1] = 0 
+                                    row[2] = locerrorIds[id]
+                                    cursor.updateRow(row)
+                                    totalrowsupdated  += 1
                         desc = arcpy.Describe(input_table)
                         arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to in the input table {desc.name}.")
+
 
                         arcpy.management.Delete("pointverifiedrecords")
 
@@ -357,11 +362,8 @@ class HistoricalContract:
                             pointeventfields = {field.name for field in arcpy.ListFields(Point_fc)if field.type not in ("OID")}
                             fields = ['SHAPE@'] + list(nolocerrorfields & pointeventfields) # Get fields that are common in both tables, and add geometry field
 
-                            arcpy.AddMessage(f"{fields}")
-
                             indexofEventId = fields.index('ID')  # Get the index of the contract number in the fields table (use this index in the search cursor)
                             recordstoappend = {row[0] for row in arcpy.da.SearchCursor(Point_fc,['ID'])}  #Get all Contract Numbers in the tables located with no error 
-                        
                         
                             with arcpy.da.InsertCursor(Point_fc,fields) as insertcursor:
                                 with arcpy.da.SearchCursor("NOLocationErrorPE",fields) as searchcursor:
@@ -388,19 +390,28 @@ class HistoricalContract:
                         if next(cursor, None) is not None:
 
                             arcpy.AddMessage(f"Updating reverified field to 2 for all records that were successfuly located with no error")
+
                             noerrorcontractIDs = {row[0] for row in arcpy.da.SearchCursor('NOLocationErrorPE',['ID'])}  # get a set of all IDS
+
                             allnoerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in noerrorcontractIDs])
                             noerrorcontractIDsquery = f"ID IN ({allnoerrorcontractIDs})"
+
                             arcpy.MakeTableView_management(input_table, "pointeventsnoerror",noerrorcontractIDsquery)
 
-                            with arcpy.da.UpdateCursor("pointeventsnoerror",['Reverified']) as cursor:
+                            noerrorIds = {row[0] : row[1] for row in arcpy.da.SearchCursor('NOLocationErrorPE',['ID','LOC_ERROR'])} 
 
+                            with arcpy.da.UpdateCursor("pointeventsnoerror",['ID','Reverified','LocError']) as cursor:
                                 totalrowsupdated  = 0
                                 for row in cursor:
-                                    row[0] = 2
-                                    cursor.updateRow(row)
-                                    totalrowsupdated  += 1
+                                    id = row[0]
+                                    if id in noerrorIds:
+                                        row[1] = 2
+                                        row[2] = noerrorIds[id]
+                                        cursor.updateRow(row)
+                                        totalrowsupdated  += 1
+                                        
                             desc = arcpy.Describe(input_table)
+                            
                             arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to 2 in the input table {desc.name}.")
                             arcpy.management.Delete("pointeventsnoerror")
 
@@ -450,8 +461,7 @@ class HistoricalContract:
                                                         "NO_ANGLE_FIELD",
                                                         "NORMAL",
                                                         "ANGLE",
-                                                        "LEFT",
-                                                        "POINT")    # verify with team if Line or Point for this field
+                                                        "LEFT")    
                             
                             arcpy.AddMessage(f"Make Route Event Layer for Line Event has successfully processed")
                             arcpy.management.Delete("verifiedrecordsLE")
@@ -465,7 +475,7 @@ class HistoricalContract:
 
                             lineeverror = int(arcpy.management.GetCount("LocationError")[0])
                             arcpy.AddMessage(f"How many records with Error: {lineeverror} ")
-                            # arcpy.AddMessage(f"How many Unique ids: {len(lineventscontractIDs)} ")
+                           
 
                             if  lineventscontractIDs:                                                                                             # check if it is a non-empty set
                                 arcpy.AddMessage(f"Updating the reverified field in the input table for all records with Location Error to 0")
@@ -473,17 +483,19 @@ class HistoricalContract:
                                 locerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in lineventscontractIDs])                               # Loop through all the ids, add quotation marks, and join them to an empty string.
                                 contractIDsquery = f"ID IN ({locerrorcontractIDs})"
 
-                                # arcpy.AddMessage(f"Updating records with these IDs: {lineventscontractIDs} ")
-
                                 arcpy.MakeTableView_management(input_table, "lineverifiedrecords",contractIDsquery)
 
-                                with arcpy.da.UpdateCursor("lineverifiedrecords",['Reverified']) as cursor:
+                                locerrorIdsLE = {row[0]: row[1] for row in arcpy.da.SearchCursor('LocationError', ['ID', 'LOC_ERROR'])}
+
+                                with arcpy.da.UpdateCursor("lineverifiedrecords",['ID','Reverified','LocError']) as cursor:
                                     totalrowsupdated  = 0
                                     for row in cursor:
-                                        row[0] = 0
-                                        cursor.updateRow(row)
-                                        totalrowsupdated  += 1
-                                        
+                                        id = row[0]
+                                        if id in locerrorIdsLE:
+                                            row[1] = 0
+                                            row[2] = locerrorIdsLE[id]
+                                            cursor.updateRow(row)
+                                            totalrowsupdated  += 1 
                                 desc = arcpy.Describe(input_table)
                                 arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to in the input table {desc.name}.")
 
@@ -527,19 +539,29 @@ class HistoricalContract:
 
                             with arcpy.da.SearchCursor("NOLocationErrorLE",['OID@']) as cursor:   # Check if Table is not empty
                                 if next(cursor, None) is not None:
+                                     
                                      arcpy.AddMessage(f"Updating reverified field to 2 for all records that were successfuly located with no error")
+
                                      noerrorcontractIDs = {row[0] for row in arcpy.da.SearchCursor('NOLocationErrorLE',['ID'])}  # get a set of all IDS
+                                     
                                      allnoerrorcontractIDs = ", ".join([f"'{str(ids)}'" for ids in noerrorcontractIDs])
                                      noerrorcontractIDsquery = f"ID IN ({allnoerrorcontractIDs})"
+
                                      arcpy.MakeTableView_management(input_table, "lineeventsnoerror",noerrorcontractIDsquery)
 
-                                     with arcpy.da.UpdateCursor("lineeventsnoerror",['Reverified']) as cursor:  
+                                     nolocerrorIdsLE = {row[0]: row[1] for row in arcpy.da.SearchCursor('NOLocationErrorLE', ['ID', 'LOC_ERROR'])}
+
+                                     with arcpy.da.UpdateCursor("lineeventsnoerror",['ID','Reverified','LocError']) as cursor:  
                                           totalrowsupdated  = 0
                                           for row in cursor:
-                                            row[0] = 2
-                                            cursor.updateRow(row)
-                                            totalrowsupdated  += 1
+                                            id = row[0]
+                                            if id in nolocerrorIdsLE:
+                                               row[1] = 2
+                                               row[2] = nolocerrorIdsLE[id]
+                                               cursor.updateRow(row)
+                                               totalrowsupdated  += 1
                                      desc = arcpy.Describe(input_table)
+
                                      arcpy.AddMessage(f"A total of {totalrowsupdated} records had the reverified field set to 2 in the input table {desc.name}.")
                                      arcpy.management.Delete("lineeventsnoerror")
                                 else:
